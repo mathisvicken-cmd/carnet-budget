@@ -109,6 +109,13 @@ button{cursor:pointer}
 .seg button{flex:1;border:0;background:none;padding:8px;border-radius:9px;font-weight:600;font-size:14px;color:var(--muted)}
 .seg button[aria-pressed="true"]{background:var(--accent);color:var(--accent-ink)}
 
+/* Filtre par catégorie : rangée de pastilles qui défile horizontalement */
+.cat-chips{display:flex;gap:8px;overflow-x:auto;margin-inline:-16px;padding:2px 16px 4px;scrollbar-width:none;-webkit-overflow-scrolling:touch}
+.cat-chips::-webkit-scrollbar{display:none}
+.cat-chips button{flex:none;display:flex;align-items:center;gap:6px;border:1.5px solid transparent;background:var(--surface);box-shadow:var(--shadow);border-radius:99px;padding:7px 12px;font-weight:600;font-size:13.5px;color:var(--ink);white-space:nowrap}
+.cat-chips button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+.cat-row.go{cursor:pointer;border-radius:8px}
+.cat-row.go:active{opacity:.6}
 .tbl-wrap{overflow-x:auto;margin-inline:-4px}
 table{width:100%;border-collapse:collapse;font-size:13.5px;font-variant-numeric:tabular-nums}
 th{font-size:10.5px;letter-spacing:.07em;text-transform:uppercase;color:var(--muted);font-weight:700;text-align:right;padding:6px 4px;border-bottom:1px solid var(--line)}
@@ -255,7 +262,7 @@ const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pa
 // ---------- État ----------
 let sb = null, ME = null;   // client Supabase, utilisateur connecté
 let S = null;               // toutes les données chargées
-const UI = { tab: 'home', ym: todayStr().slice(0, 7), filter: 'all', listMode: 'exp', editHome: false };
+const UI = { tab: 'home', ym: todayStr().slice(0, 7), filter: 'all', catFilter: 'all', listMode: 'exp', editHome: false };
 
 // ---------- Outils ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -414,7 +421,7 @@ const W = {
     const live = S.cats.filter(c => c.budget > 0 && !c.fixed), ok = live.filter(c => C.by[c.id] <= c.budget).length;
     const extra = C.by.none ? `<div class="cat-row"><span class="cat-name"><i class="dot" style="background:var(--c8)"></i>Sans catégorie</span><span class="small num"><b>${eur(C.by.none)}</b></span></div>` : '';
     return `<section class="card"><div class="card-h"><span class="label">Catégories</span><span class="small muted">${ok}/${live.length} dans le budget</span></div><div class="cats">${
-      S.cats.map(c => { const s = C.by[c.id] || 0; return `<div class="cat-row"><span class="cat-name"><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}${c.fixed ? ' <span class="fixed-tag">fixe</span>' : ''}</span>
+      S.cats.map(c => { const s = C.by[c.id] || 0; return `<div class="cat-row go" data-act="catgo" data-id="${c.id}" role="button" tabindex="0" aria-label="Voir les dépenses ${esc(c.name)}"><span class="cat-name"><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}${c.fixed ? ' <span class="fixed-tag">fixe</span>' : ''}</span>
       <span class="small num"><b class="pct ${c.budget && !c.fixed ? level(s / c.budget) : ''}">${eur(s)}</b> <span class="muted">/ ${eur(c.budget)}</span></span>${catBar(s, c.budget, col(c))}</div>`; }).join('')}${extra}</div></section>`;
   },
   semaines(C) {
@@ -479,14 +486,22 @@ function viewList(C) {
       <div class="list">${inc.map(i => `<button class="item" data-act="inc" data-id="${i.id}"><span class="ic" style="background:var(--good)">+</span><span class="tx"><b>${esc(i.label)}</b><span>${dayLabel(i.date)}</span></span><span class="am" style="color:var(--good)">+${eur(i.amount)}</span></button>`).join('') || '<div class="empty small">Aucun revenu saisi ce mois-ci.</div>'}</div></section>
       <button class="btn primary full" data-act="addInc">Ajouter un revenu</button></div>`;
   }
-  const f = UI.filter, list = C.exps.filter(e => f === 'all' || (f === 'shared' ? e.shared : !e.shared));
+  const f = UI.filter, cf = UI.catFilter;
+  // Filtre perso/communes puis filtre par catégorie
+  const list = C.exps.filter(e => (f === 'all' || (f === 'shared' ? e.shared : !e.shared)) && (cf === 'all' || e.cat === cf));
+  const usedCats = (C.by.none ? [...S.cats, NONE] : S.cats);
+  const chips = `<div class="cat-chips" role="group" aria-label="Filtrer par catégorie"><button data-act="catf" data-v="all" aria-pressed="${cf === 'all'}">Toutes</button>${
+    usedCats.map(c => `<button data-act="catf" data-v="${c.id}" aria-pressed="${cf === c.id}"><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}</button>`).join('')}</div>`;
+  const catSel = cf !== 'all' ? cat(cf) : null;
+  const catInfo = catSel && catSel.budget ? `<p class="small muted num" style="margin:-4px 0 8px">${eur(C.by[cf] || 0)} sur ${eur(catSel.budget)} ce mois-ci · reste ${eur(catSel.budget - (C.by[cf] || 0))}</p>` : '';
   let html = '', last = '';
   list.forEach(e => { if (e.date !== last) { html += `<div class="day-h">${dayLabel(e.date)}</div>`; last = e.date; } html += itemHtml(e); });
   const tot = list.reduce((s, e) => s + (f === 'shared' ? e.amount : share(e)), 0);
   return `<div class="stack">${seg}
     <div class="seg"><button data-act="filter" data-v="all" aria-pressed="${f === 'all'}">Tout</button><button data-act="filter" data-v="perso" aria-pressed="${f === 'perso'}">Perso</button><button data-act="filter" data-v="shared" aria-pressed="${f === 'shared'}">Communes</button></div>
-    <section class="card"><div class="card-h"><span class="label">${f === 'shared' ? 'Total dépensé à deux' : 'Ta part'}</span><b class="num">${eur(tot)}</b></div>
-    <div class="list">${html || '<div class="empty small">Rien ici pour ce mois.</div>'}</div></section></div>`;
+    ${chips}
+    <section class="card"><div class="card-h"><span class="label">${catSel ? esc(catSel.name) + ' · ' : ''}${f === 'shared' ? 'Total dépensé à deux' : 'Ta part'}</span><b class="num">${eur(tot)}</b></div>${catInfo}
+    <div class="list">${html || '<div class="empty small">Aucune dépense ne correspond à ce filtre ce mois-ci.</div>'}</div></section></div>`;
 }
 function viewStats(C) {
   const all = C.by.none ? [...S.cats, NONE] : S.cats;
@@ -683,8 +698,10 @@ document.addEventListener('click', e => {
       else { el.dataset.sure = 1; el.textContent = 'Confirmer'; } break;
     case 'inc': { const i = S.incs.find(x => x.id === id); confirmSheet('Supprimer ce revenu ?', `${esc(i.label)} · ${eur(i.amount)}`, 'Supprimer', () => db(sb.from('incomes').delete().eq('id', id), 'Revenu supprimé')); break; }
     case 'filter': UI.filter = el.dataset.v; render(); break;
+    case 'catf': UI.catFilter = el.dataset.v; render(); break;
+    case 'catgo': UI.tab = 'list'; UI.listMode = 'exp'; UI.filter = 'all'; UI.catFilter = id; render(); window.scrollTo(0, 0); break;
     case 'mode': UI.listMode = el.dataset.v; render(); break;
-    case 'shared': UI.tab = 'list'; UI.listMode = 'exp'; UI.filter = 'shared'; render(); break;
+    case 'shared': UI.tab = 'list'; UI.listMode = 'exp'; UI.filter = 'shared'; UI.catFilter = 'all'; render(); break;
     case 'addInc': addIncome(); break;
     case 'addCat': addCat(); break;
     case 'addSub': addSub(); break;
