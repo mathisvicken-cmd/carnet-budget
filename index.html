@@ -152,6 +152,10 @@ svg text{font-family:var(--f-body)}
 .field>span{font-size:12px;font-weight:700;letter-spacing:.06em;text-transform:uppercase;color:var(--muted)}
 .inp{width:100%;border:1.5px solid var(--line);background:var(--sunk);border-radius:12px;padding:11px 12px;font-size:16px}
 .inp:focus{border-color:var(--accent);outline:none}
+/* iPhone : le champ date natif impose sa propre largeur et déborde ; on le neutralise */
+.field{min-width:0}
+input[type="date"].inp{-webkit-appearance:none;appearance:none;display:block;min-width:0;max-width:100%;width:100%;min-height:46px;text-align:left}
+input[type="date"].inp::-webkit-date-and-time-value{text-align:left;margin:0}
 .amount-inp{font-family:var(--f-display);font-size:34px;font-weight:700;text-align:center;border:0;background:none;padding:4px}
 .choices{display:flex;flex-wrap:wrap;gap:8px}
 .choices label{position:relative}
@@ -578,7 +582,7 @@ document.addEventListener('submit', async e => {
   if (ok !== false) closeSheet(); else btn.disabled = false;
 });
 const catChoices = sel => `<div class="choices">${S.cats.map((c, i) => `<label><input type="radio" name="cat" value="${c.id}" ${(sel ? sel === c.id : i === 0) ? 'checked' : ''}><span><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}</span></label>`).join('')}</div>`;
-const defDate = () => UI.ym === todayStr().slice(0, 7) ? todayStr() : UI.ym + '-01';
+const defDate = () => todayStr();   // date par défaut : toujours le jour même
 const needAmount = a => { if (!(a > 0)) { toast('Indique un montant supérieur à 0'); return false; } return true; };
 
 function addExpense() {
