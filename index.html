@@ -126,6 +126,27 @@ button{cursor:pointer}
 .chip.wait{background:var(--warn-soft);color:var(--warn)}
 .kebab svg{width:20px;height:20px}
 .danger-link{color:var(--bad);display:block;margin:2px 0 10px;font-size:14px}
+/* Bouton supprimer */
+.del-btn{width:100%;margin-top:12px;display:flex;align-items:center;justify-content:center;gap:8px;background:transparent;color:var(--bad);border:1.5px solid color-mix(in srgb,var(--bad) 40%,transparent)}
+.del-btn.sure{background:var(--bad);color:#fff;border-color:var(--bad);animation:pop .32s cubic-bezier(.2,.9,.25,1)}
+/* Sélecteur à pastille glissante */
+.seg.pill-seg{position:relative}
+.seg.pill-seg .pill{position:absolute;top:4px;bottom:4px;left:4px;width:calc(50% - 6px);border-radius:9px;background:var(--accent);transition:transform .4s cubic-bezier(.2,.9,.25,1);pointer-events:none}
+.seg.pill-seg.right .pill{transform:translateX(calc(100% + 4px))}
+.seg.pill-seg button{position:relative;z-index:1;transition:color .3s ease}
+.seg.pill-seg button[aria-pressed="true"]{background:none;color:var(--accent-ink)}
+/* Blocs qui se replient en douceur */
+.collapse{display:grid;grid-template-rows:1fr;opacity:1;transition:grid-template-rows .4s cubic-bezier(.2,.9,.25,1),opacity .3s ease}
+.collapse>div{overflow:hidden;min-height:0}
+.collapse.closed{grid-template-rows:0fr;opacity:0}
+#sheetForm .amount-inp{transition:color .3s ease}
+#sheetForm.inc .amount-inp{color:var(--good)}
+/* Poignée de la fenêtre (glisser pour fermer) */
+.grip-zone{position:sticky;top:-10px;z-index:3;margin:-10px -16px 0;padding:10px 0 12px;background:var(--surface);cursor:grab;touch-action:none}
+.grip-zone .grip{margin:0 auto}
+.edit-row.moved{animation:pop .35s cubic-bezier(.2,.9,.25,1)}
+#dc{transform-origin:100px 100px}
+#dc.dc-anim{animation:dcIn .35s cubic-bezier(.2,.9,.25,1) both}
 .off-b{background:var(--warn-soft);color:var(--warn);margin-bottom:14px}
 .bilan-b{background:var(--accent);color:var(--accent-ink)}
 .bilan-b .btn.primary{background:var(--accent-ink);color:var(--accent)}
@@ -201,6 +222,8 @@ svg text{font-family:var(--f-body)}
 @keyframes swapIn{from{opacity:0;transform:translateX(28px)}to{opacity:1;transform:none}}
 @keyframes grow{from{width:0}}
 @keyframes ringIn{from{stroke-dasharray:0 400}}
+@keyframes pop{0%{transform:scale(.94)}55%{transform:scale(1.03)}100%{transform:none}}
+@keyframes dcIn{from{opacity:0;transform:scale(.88)}to{opacity:1;transform:none}}
 @keyframes tIn{from{opacity:0;transform:translateY(-6px)}to{opacity:1;transform:none}}
 .scrim{animation:fadeIn .3s ease both}
 .scrim.closing{animation:fadeOut .24s ease both}
@@ -215,7 +238,8 @@ svg text{font-family:var(--f-body)}
 #view.a-fade .stack>*:nth-child(n+7){animation-delay:.24s}
 #view.a-left>.stack{animation:vL .38s cubic-bezier(.22,.9,.3,1) both}
 #view.a-right>.stack{animation:vR .38s cubic-bezier(.22,.9,.3,1) both}
-#view.a-soft .stack>*{animation:vSoft .28s ease both}
+#view.a-soft .stack>section,#view.a-soft .stack>.empty{animation:vSoft .3s ease both}
+#view.a-soft .seg button[aria-pressed="true"],#view.a-soft .cat-chips button[aria-pressed="true"]{animation:pop .32s cubic-bezier(.2,.9,.25,1) both}
 #view.a-fade .bar i,#view.a-left .bar i,#view.a-right .bar i{animation:grow .8s cubic-bezier(.22,.9,.3,1) .12s both}
 #view.a-fade .ring circle+circle,#view.a-left .ring circle+circle,#view.a-right .ring circle+circle{animation:ringIn 1s cubic-bezier(.22,.9,.3,1) .12s both}
 .t-anim{animation:tIn .32s cubic-bezier(.22,.9,.3,1) both}
@@ -319,7 +343,7 @@ input[type="date"].inp::-webkit-date-and-time-value{text-align:left;margin:0}
 </div>
 
 <div class="scrim" id="scrim" hidden data-act="close"></div>
-<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"><div class="sheet-in"><div class="grip"></div><div id="sheetBody"></div></div></div>
+<div class="sheet" id="sheet" hidden role="dialog" aria-modal="true"><div class="grip-zone" aria-hidden="true"><div class="grip"></div></div><div class="sheet-in"><div id="sheetBody"></div></div></div>
 <div class="toast" id="toast" hidden></div>
 
 <script>
@@ -836,14 +860,24 @@ function donut(C, all) {
   let cum = 0;
   const arcs = data.map(d => {
     const len = d.s / tot * L, dash = Math.max(.5, len - gap), on = !sel || sel === d;
-    const el = `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${col(d.c)}" stroke-width="${sel === d ? 30 : 24}" stroke-dasharray="${dash.toFixed(2)} ${(L - dash).toFixed(2)}" stroke-dashoffset="${(-cum).toFixed(2)}" transform="rotate(-90 100 100)" opacity="${on ? 1 : .3}" data-act="donut" data-id="${d.c.id}" style="cursor:pointer;transition:opacity .2s,stroke-width .2s"/>`;
+    const el = `<circle cx="100" cy="100" r="${r}" fill="none" stroke="${col(d.c)}" stroke-dasharray="${dash.toFixed(2)} ${(L - dash).toFixed(2)}" stroke-dashoffset="${(-cum).toFixed(2)}" transform="rotate(-90 100 100)" data-act="donut" data-id="${d.c.id}" style="cursor:pointer;stroke-width:${sel === d ? 30 : 24}px;opacity:${on ? 1 : .3};transition:opacity .35s ease,stroke-width .35s cubic-bezier(.2,.9,.25,1)"/>`;
     cum += len; return el;
   }).join('');
   const center = sel
     ? `<text x="100" y="88" text-anchor="middle" font-size="12" fill="var(--muted)" font-weight="700">${esc(sel.c.name)}</text><text x="100" y="114" text-anchor="middle" font-size="24" font-weight="700" fill="var(--ink)" style="font-family:var(--f-display)">${Math.round(sel.s / tot * 100)} %</text><text x="100" y="134" text-anchor="middle" font-size="12" fill="var(--muted)">${eur(sel.s)}</text>`
     : `<text x="100" y="94" text-anchor="middle" font-size="12" fill="var(--muted)" font-weight="700">Dépensé</text><text x="100" y="120" text-anchor="middle" font-size="24" font-weight="700" fill="var(--ink)" style="font-family:var(--f-display)">${eur(tot)}</text>`;
   const legend = data.map(d => `<button class="lg-row${sel === d ? ' on' : ''}" data-act="donut" data-id="${d.c.id}"><i class="dot" style="background:${col(d.c)}"></i><span class="lg-n">${esc(d.c.name)}</span><span class="num lg-a">${eur(d.s)}</span><b class="num lg-p">${Math.round(d.s / tot * 100)} %</b></button>`).join('');
-  return `<div class="donut"><svg viewBox="0 0 200 200" role="img" aria-label="Répartition des dépenses par catégorie"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="24"/>${arcs}${center}</svg><div class="lg">${legend}</div></div>`;
+  return `<div class="donut"><svg viewBox="0 0 200 200" role="img" aria-label="Répartition des dépenses par catégorie"><circle cx="100" cy="100" r="${r}" fill="none" stroke="var(--sunk)" stroke-width="24"/>${arcs}<g id="dc">${center}</g></svg><div class="lg">${legend}</div></div>`;
+}
+// Sélection d'une part : les arcs, le centre et la légende changent en douceur
+function donutSelect(id) {
+  UI.donutSel = UI.donutSel === id ? null : id;
+  const box = document.querySelector('.donut'); if (!box) return render();
+  const C = calc(UI.ym), tmp = document.createElement('div');
+  tmp.innerHTML = donut(C, C.by.none ? [...S.cats, NONE] : S.cats);
+  box.querySelectorAll('circle[data-id]').forEach(c => { const n = tmp.querySelector(`circle[data-id="${c.dataset.id}"]`); if (n) { c.style.strokeWidth = n.style.strokeWidth; c.style.opacity = n.style.opacity; } });
+  const g = box.querySelector('#dc'); g.innerHTML = tmp.querySelector('#dc').innerHTML; g.classList.remove('dc-anim'); void g.getBoundingClientRect(); g.classList.add('dc-anim');
+  box.querySelectorAll('.lg-row').forEach(r => r.classList.toggle('on', r.dataset.id === UI.donutSel));
 }
 function viewStats(C) {
   const all = C.by.none ? [...S.cats, NONE] : S.cats;
@@ -926,22 +960,25 @@ function render(anim) {
   $('monthTitle').textContent = monthLabel(UI.ym);
   if (anim === 'left' || anim === 'right') { const t = $('monthTitle'); t.classList.remove('t-anim'); void t.offsetWidth; t.classList.add('t-anim'); }
   $('searchBar').hidden = !(UI.tab === 'list' && UI.listMode === 'exp');
+  const chipsX = (document.querySelector('.cat-chips') || {}).scrollLeft || 0;
   v.className = anim ? 'a-' + anim : '';
   if (anim) { clearTimeout(render.t); render.t = setTimeout(() => { v.className = ''; }, 900); }
   document.querySelectorAll('.tab').forEach(t => t.dataset.tab === UI.tab ? t.setAttribute('aria-current', 'page') : t.removeAttribute('aria-current'));
   const n = outbox().length;
   const off = UI.offline || n ? `<div class="banner off-b"><span>${UI.offline ? 'Hors ligne' : 'Envoi en cours'}${n ? ` · ${n} élément${n > 1 ? 's' : ''} en attente d’envoi` : ' · données de ta dernière connexion'}</span></div>` : '';
   $('view').innerHTML = off + ({ home: viewHome, list: viewList, stats: viewStats, pots: viewPots, settings: viewSettings })[UI.tab](C);
+  const ch = document.querySelector('.cat-chips'); if (ch && chipsX) ch.scrollLeft = chipsX;
 }
 
 // ---------- Feuilles (formulaires) ----------
 let onSubmit = null;
 let sheetT = null;
-function openSheet(title, body, submit, label = 'Enregistrer') {
+function openSheet(title, body, submit, label = 'Enregistrer', footer = '') {
   onSubmit = submit;
   const sh = $('sheet'), sc = $('scrim'), wasOpen = !sh.hidden && !sh.classList.contains('closing');
   clearTimeout(sheetT); sh.classList.remove('closing'); sc.classList.remove('closing');
-  $('sheetBody').innerHTML = `<form id="sheetForm"><h2>${title}</h2>${body}${submit ? `<div class="sheet-actions"><button type="button" class="btn ghost" data-act="close">Annuler</button><button class="btn primary" id="sheetOk">${label}</button></div>` : ''}</form>`;
+  ['transform', 'transition', 'animation'].forEach(p => sh.style[p] = ''); sc.style.opacity = ''; sc.style.transition = '';
+  $('sheetBody').innerHTML = `<form id="sheetForm"><h2>${title}</h2>${body}${submit ? `<div class="sheet-actions"><button type="button" class="btn ghost" data-act="close">Annuler</button><button class="btn primary" id="sheetOk">${label}</button></div>` : ''}${footer}</form>`;
   sc.hidden = false; sh.hidden = false;
   if (wasOpen) { const b = $('sheetBody'); b.classList.remove('swap'); void b.offsetWidth; b.classList.add('swap'); sh.scrollTop = 0; }
 }
@@ -966,18 +1003,18 @@ const needAmount = a => { if (!(a > 0)) { toast('Indique un montant supérieur �
 // Bouton + : dépense par défaut, avec un sélecteur pour basculer en revenu
 function addExpense(kind = 'exp') {
   openSheet('<span id="sheetTitle">Nouvelle dépense</span>', `
-    <div class="seg" style="margin-bottom:14px;box-shadow:none;background:var(--sunk)"><button type="button" id="k-exp" data-act="kind" data-v="exp" aria-pressed="true">Dépense</button><button type="button" id="k-inc" data-act="kind" data-v="inc" aria-pressed="false">Revenu</button></div>
+    <div class="seg pill-seg" id="kindSeg" style="margin-bottom:14px;box-shadow:none;background:var(--sunk)"><i class="pill"></i><button type="button" id="k-exp" data-act="kind" data-v="exp" aria-pressed="true">Dépense</button><button type="button" id="k-inc" data-act="kind" data-v="inc" aria-pressed="false">Revenu</button></div>
     <input type="hidden" name="kind" id="f-kind" value="exp">
     <div class="field"><input class="inp amount-inp num" id="f-amount" name="amount" inputmode="decimal" placeholder="0,00 €" required aria-label="Montant"></div>
     <div class="field"><span>Libellé</span><input class="inp" id="f-label" name="label" placeholder="Ex. supermarché"></div>
-    <div id="expOnly">
+    <div id="expOnly" class="collapse"><div>
     <div class="field"><span>Catégorie</span>${catChoices()}</div>
-    </div>
+    </div></div>
     <div class="field"><span>Date</span><input class="inp" id="f-date" type="date" name="date" value="${defDate()}" required></div>
-    <div id="expOnly2">
+    <div id="expOnly2" class="collapse"><div>
     ${S.partner ? `<label class="toggle"><span><b>Dépense commune</b><br><span class="small muted">Divisée par deux avec ${esc(partnerName())}</span></span><input type="checkbox" class="sw" id="f-shared" name="shared"></label>
-    <div class="field" id="paidBox" hidden><span>Qui a payé ?</span><div class="choices"><label><input type="radio" name="paidBy" value="me" checked><span>${esc(S.profile.name || 'Moi')}</span></label><label><input type="radio" name="paidBy" value="partner"><span>${esc(partnerName())}</span></label></div></div>` : ''}
-    </div>`,
+    <div class="collapse closed" id="paidBox"><div><div class="field"><span>Qui a payé ?</span><div class="choices"><label><input type="radio" name="paidBy" value="me" checked><span>${esc(S.profile.name || 'Moi')}</span></label><label><input type="radio" name="paidBy" value="partner"><span>${esc(partnerName())}</span></label></div></div></div></div>` : ''}
+    </div></div>`,
     async fd => {
       const amount = num(fd.get('amount')); if (!needAmount(amount)) return false;
       // Revenu : enregistré dans la table des revenus
@@ -993,16 +1030,20 @@ function addExpense(kind = 'exp') {
       if (b && !c.fixed) for (const th of [1, 0.8, 0.5]) if (before < b * th && after >= b * th) { msg = `${c.name} : ${th === 1 ? 'budget dépassé' : Math.round(th * 100) + ' % du budget atteint'}`; break; }
       toast(msg);
     });
-  const sh = $('f-shared'); if (sh) sh.addEventListener('change', () => $('paidBox').hidden = !sh.checked);
-  setKind(kind);
+  const sh = $('f-shared'); if (sh) sh.addEventListener('change', () => $('paidBox').classList.toggle('closed', !sh.checked));
+  setKind(kind, true);
 }
 // Bascule du formulaire entre dépense et revenu
-function setKind(k) {
+function setKind(k, first) {
   const inc = k === 'inc';
+  if (!first && $('f-kind').value === k) return;
   $('f-kind').value = k;
   $('k-exp').setAttribute('aria-pressed', !inc); $('k-inc').setAttribute('aria-pressed', inc);
-  $('expOnly').hidden = inc; $('expOnly2').hidden = inc;
-  $('sheetTitle').textContent = inc ? 'Nouveau revenu' : 'Nouvelle dépense';
+  $('kindSeg').classList.toggle('right', inc);
+  $('sheetForm').classList.toggle('inc', inc);
+  $('expOnly').classList.toggle('closed', inc); $('expOnly2').classList.toggle('closed', inc);
+  const t = $('sheetTitle'); t.textContent = inc ? 'Nouveau revenu' : 'Nouvelle dépense';
+  if (!first) { t.classList.remove('t-anim'); void t.offsetWidth; t.classList.add('t-anim'); }
   $('f-label').placeholder = inc ? 'Ex. salaire, prime, vente' : 'Ex. supermarché';
   $('sheetOk').textContent = inc ? 'Ajouter le revenu' : 'Enregistrer';
 }
@@ -1030,8 +1071,7 @@ function showExpense(id, ym) {
       ${e.label ? `<p class="small muted" style="margin:6px 0 0">Les prochains paiements Apple Pay chez « ${esc(e.label)} » iront dans la catégorie choisie.</p>` : ''}</div>
     <div class="field"><span>Date</span><input class="inp" id="e-date" type="date" name="date" value="${e.date}" required></div>
     ${S.partner ? `<label class="toggle"><span><b>Dépense commune</b><br><span class="small muted">Divisée par deux avec ${esc(partnerName())}</span></span><input type="checkbox" class="sw" id="e-shared" name="shared" ${e.shared ? 'checked' : ''}></label>
-    <div class="field" id="e-paidBox" ${e.shared ? '' : 'hidden'}><span>Qui a payé ?</span><div class="choices"><label><input type="radio" name="paidBy" value="me" ${e.paidByMe ? 'checked' : ''}><span>${esc(S.profile.name || 'Moi')}</span></label><label><input type="radio" name="paidBy" value="partner" ${e.paidByMe ? '' : 'checked'}><span>${esc(partnerName())}</span></label></div></div>` : ''}
-    <button type="button" class="link danger-link" data-act="delExp" data-id="${e.id}">Supprimer cette dépense</button>`,
+    <div class="collapse${e.shared ? '' : ' closed'}" id="e-paidBox"><div><div class="field"><span>Qui a payé ?</span><div class="choices"><label><input type="radio" name="paidBy" value="me" ${e.paidByMe ? 'checked' : ''}><span>${esc(S.profile.name || 'Moi')}</span></label><label><input type="radio" name="paidBy" value="partner" ${e.paidByMe ? '' : 'checked'}><span>${esc(partnerName())}</span></label></div></div></div></div>` : ''}`,
     async fd => {
       const amount = num(fd.get('amount')); if (!needAmount(amount)) return false;
       const k = fd.get('cat') ? cat(fd.get('cat')) : null, shared = !!fd.get('shared');
@@ -1041,8 +1081,8 @@ function showExpense(id, ym) {
       // Range aussi les autres dépenses non classées du même commerçant
       if (k && e.cat === 'none' && upd.label) await sb.from('expenses').update({ category_id: k.id, category_name: k.name }).eq('user_id', ME.id).is('category_id', null).eq('label', upd.label);
       return db(sb.from('expenses').update(upd).eq('id', e.id), 'Dépense modifiée', () => Object.assign(S.exps.find(x => x.id === e.id), upd, { amount, paidByMe: upd.paid_by === ME.id, ...(k ? { cat: k.id } : {}) }));
-    });
-  const sh = $('e-shared'); if (sh) sh.addEventListener('change', () => $('e-paidBox').hidden = !sh.checked);
+    }, 'Enregistrer', delBtn('delExp', e.id, 'la dépense'));
+  const sh = $('e-shared'); if (sh) sh.addEventListener('change', () => $('e-paidBox').classList.toggle('closed', !sh.checked));
 }
 // Dépenses à classer (arrivées par Apple Pay sans catégorie connue), tous mois confondus
 const toClassifyList = () => S.exps.filter(e => e.mine && !e.pending && e.cat === 'none').sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || ''));
@@ -1081,10 +1121,10 @@ function editIncome(id) {
     <div class="field"><input class="inp amount-inp num" id="r-amount" name="amount" inputmode="decimal" value="${String(i.amount).replace('.', ',')}" required aria-label="Montant"></div>
     <div class="field"><span>Libellé</span><input class="inp" id="r-label" name="label" value="${esc(i.label)}"></div>
     <div class="field"><span>Date</span><input class="inp" id="r-date" type="date" name="date" value="${i.date}" required></div>
-    <button type="button" class="link danger-link" data-act="delInc" data-id="${i.id}">Supprimer ce revenu</button>`,
+`,
     async fd => { const a = num(fd.get('amount')); if (!needAmount(a)) return false;
       const u = { amount: a, label: fd.get('label').trim() || 'Revenu', date: fd.get('date') };
-      return db(sb.from('incomes').update(u).eq('id', id), 'Revenu modifié', () => Object.assign(S.incs.find(x => x.id === id), u)); });
+      return db(sb.from('incomes').update(u).eq('id', id), 'Revenu modifié', () => Object.assign(S.incs.find(x => x.id === id), u)); }, 'Enregistrer', delBtn('delInc', id, 'le revenu'));
 }
 // Menu ⋮ d'une catégorie : fixe ou supprimer
 function catMenu(id) {
@@ -1147,6 +1187,13 @@ function settsSheet() {
   <button type="button" class="btn ghost full" data-act="close">Fermer</button>`, null);
 }
 const addIncome = () => addExpense('inc');
+// Bouton « Supprimer » : un premier toucher demande confirmation, un second supprime
+const TRASH = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" width="18" height="18"><path d="M4 7h16M10 11v6M14 11v6M6 7l1 12a2 2 0 0 0 2 2h6a2 2 0 0 0 2-2l1-12M9 7V4h6v3"/></svg>';
+const delBtn = (act, id, what) => `<button type="button" class="btn del-btn" data-act="${act}" data-id="${id}" data-what="${what}">${TRASH}<span>Supprimer ${what}</span></button>`;
+function armDelete(el) {
+  el.dataset.sure = 1; el.classList.add('sure'); el.innerHTML = TRASH + '<span>Toucher encore pour confirmer</span>';
+  clearTimeout(el._t); el._t = setTimeout(() => { if (!el.isConnected) return; delete el.dataset.sure; el.classList.remove('sure'); el.innerHTML = TRASH + `<span>Supprimer ${el.dataset.what}</span>`; }, 4000);
+}
 function addCat() {
   const used = S.cats.map(c => c.color), color = [1, 2, 3, 4, 5, 6, 7, 8].find(n => !used.includes(n)) || 8;
   openSheet('Nouvelle catégorie', `<div class="field"><span>Nom</span><input class="inp" id="c-name" name="name" required placeholder="Ex. Santé, Animaux"></div>
@@ -1214,11 +1261,11 @@ document.addEventListener('click', e => {
     case 'exp': { const x = S.exps.find(y => y.id === id); if (x && x.mine && !x.pending && x.cat === 'none') classify(id); else showExpense(id, el.dataset.ym); break; }
     case 'delExp':
       if (el.dataset.sure) { closeSheet(); db(sb.from('expenses').delete().eq('id', id), 'Dépense supprimée', () => { S.exps = S.exps.filter(x => x.id !== id); }); }
-      else { el.dataset.sure = 1; el.textContent = 'Toucher à nouveau pour confirmer la suppression'; } break;
+      else armDelete(el); break;
     case 'inc': editIncome(id); break;
     case 'delInc':
       if (el.dataset.sure) { closeSheet(); db(sb.from('incomes').delete().eq('id', id), 'Revenu supprimé', () => { S.incs = S.incs.filter(x => x.id !== id); }); }
-      else { el.dataset.sure = 1; el.textContent = 'Toucher à nouveau pour confirmer la suppression'; } break;
+      else armDelete(el); break;
     case 'dropPending': setOutbox(outbox().filter(o => o.tmp !== id)); applyOutbox(); closeSheet(); render(); toast('Saisie annulée'); break;
     case 'catMenu': catMenu(id); break;
     case 'editPot': editPot(id); break;
@@ -1250,10 +1297,11 @@ document.addEventListener('click', e => {
       $('sheetOk').className = 'btn primary'; break;
     }
     case 'editHome': UI.editHome = !UI.editHome; window.scrollTo(0, 0); render('fade'); break;
-    case 'wmove': { const i = +el.dataset.i, j = i + +el.dataset.d; [S.widgets[i], S.widgets[j]] = [S.widgets[j], S.widgets[i]]; render(); saveSettings(); break; }
-    case 'wtoggle': { const k = el.dataset.k; S.hidden = S.hidden.includes(k) ? S.hidden.filter(x => x !== k) : [...S.hidden, k]; render(); saveSettings(); break; }
+    case 'wmove': { const i = +el.dataset.i, j = i + +el.dataset.d; [S.widgets[i], S.widgets[j]] = [S.widgets[j], S.widgets[i]]; render(); saveSettings(true);
+      const rows = document.querySelectorAll('.edit-row'); [rows[i], rows[j]].forEach(r => r && r.classList.add('moved')); break; }
+    case 'wtoggle': { const k = el.dataset.k; S.hidden = S.hidden.includes(k) ? S.hidden.filter(x => x !== k) : [...S.hidden, k]; render(); saveSettings(true); break; }
     case 'kind': setKind(el.dataset.v); break;
-    case 'donut': UI.donutSel = UI.donutSel === id ? null : id; { const y = window.scrollY; render(); window.scrollTo(0, y); } break;
+    case 'donut': donutSelect(id); break;
     case 'toClassify': classify(); break;
     case 'clPick': clPick(id, el.dataset.v); break;
     case 'clSkip': classify(id); break;
@@ -1301,6 +1349,60 @@ document.addEventListener('change', e => {
   if (a === 'pemail') db(sb.from('profiles').update({ partner_email: el.value.trim().toLowerCase() || null }).eq('id', ME.id), 'Email enregistré');
 });
 document.addEventListener('keydown', e => { if (e.key === 'Escape') closeSheet(); });
+// Glisser la fenêtre vers le bas pour la fermer (depuis la poignée, ou n'importe où quand le contenu est tout en haut)
+let suppressClick = false;
+document.addEventListener('click', e => { if (suppressClick) { e.stopPropagation(); e.preventDefault(); } }, true);
+(function sheetDrag() {
+  const sh = $('sheet'), sc = $('scrim');
+  let y0 = null, dy = 0, t0 = 0, drag = false, fromGrip = false;
+  const start = (y, target) => {
+    if (sh.hidden || sh.classList.contains('closing')) return;
+    fromGrip = !!target.closest('.grip-zone');
+    if (!fromGrip && (sh.scrollTop > 0 || target.closest('input,textarea,select,.cat-chips'))) return;
+    y0 = y; dy = 0; t0 = Date.now(); drag = false;
+  };
+  const move = (y, e) => {
+    if (y0 === null) return;
+    dy = y - y0;
+    if (!drag) {
+      if (dy > 8) { drag = true; sh.style.animation = 'none'; sh.style.transition = 'none'; sc.style.transition = 'none'; }
+      else if (dy < -4 && !fromGrip) { y0 = null; return; }   // vers le haut : défilement normal
+      else return;
+    }
+    if (e.cancelable) e.preventDefault();
+    const d = Math.max(0, dy) * (dy > 0 ? 1 : 0);
+    sh.style.transform = `translateY(${d}px)`;
+    sc.style.opacity = String(Math.max(0, 1 - d / Math.max(300, sh.offsetHeight)));
+  };
+  const end = () => {
+    if (y0 === null) return;
+    const v = dy / Math.max(1, Date.now() - t0); y0 = null;
+    if (!drag) return;
+    drag = false; suppressClick = true; setTimeout(() => { suppressClick = false; }, 60);
+    if (dy > Math.min(140, sh.offsetHeight * .3) || v > .6) {
+      sh.style.transition = 'transform .26s cubic-bezier(.3,.6,.4,1)'; sc.style.transition = 'opacity .26s ease';
+      sh.style.transform = 'translateY(100%)'; sc.style.opacity = '0';
+      onSubmit = null;
+      clearTimeout(sheetT); sheetT = setTimeout(() => {
+        sh.hidden = true; sc.hidden = true; ['transform', 'transition', 'animation'].forEach(p => sh.style[p] = ''); sc.style.opacity = ''; sc.style.transition = '';
+        render();
+      }, 260);
+    } else {
+      sh.style.transition = 'transform .38s cubic-bezier(.2,.9,.25,1)'; sc.style.transition = 'opacity .3s ease';
+      sh.style.transform = ''; sc.style.opacity = '';
+      setTimeout(() => { sh.style.transition = ''; sc.style.transition = ''; }, 400);
+    }
+  };
+  sh.addEventListener('touchstart', e => start(e.touches[0].clientY, e.target), { passive: true });
+  sh.addEventListener('touchmove', e => move(e.touches[0].clientY, e), { passive: false });
+  sh.addEventListener('touchend', end); sh.addEventListener('touchcancel', end);
+  sh.addEventListener('mousedown', e => {
+    if (!e.target.closest('.grip-zone')) return;
+    start(e.clientY, e.target);
+    const mm = ev => move(ev.clientY, ev), mu = () => { end(); removeEventListener('mousemove', mm); removeEventListener('mouseup', mu); };
+    addEventListener('mousemove', mm); addEventListener('mouseup', mu);
+  });
+})();
 document.addEventListener('input', e => {
   if (e.target.id !== 'q') return;
   UI.q = e.target.value; $('qclear').hidden = !UI.q;
