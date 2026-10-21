@@ -297,7 +297,7 @@ async function load() {
   const uid = ME.id;
   const pid = (await sb.rpc('partner_id')).data || null;
   const q = t => sb.from(t).select('*');
-  const res = await Promise.all([q('profiles'), q('categories').order('position'), q('expenses'), q('incomes'), q('subscriptions'), q('pots').order('created_at'), q('pot_contribs'), q('settlements')]);
+  const res = await Promise.all([sb.from('profiles').select('id,email,name,partner_email,settings,created_at'),q('categories').order('position'), q('expenses'), q('incomes'), q('subscriptions'), q('pots').order('created_at'), q('pot_contribs'), q('settlements')]);
   const bad = res.find(r => r.error); if (bad) throw bad.error;
   const [pr, ca, ex, inc, su, po, co, se] = res.map(r => r.data);
   const N = a => a.map(x => ({ ...x, amount: +x.amount }));
@@ -475,7 +475,10 @@ function viewHome(C) {
     return `<div class="stack"><p class="small muted" style="margin:0">Choisis les blocs de ton accueil et leur ordre.</p>${rows}<button class="btn primary full" data-act="editHome">Terminer</button></div>`;
   }
   const onboarding = C.budget === 0 ? `<div class="banner"><span>Commence par fixer tes budgets par catégorie.</span><button class="btn sm primary" data-act="tab" data-tab="settings">Budgets</button></div>` : '';
-  return `<div class="stack">${onboarding}${S.widgets.filter(k => !S.hidden.includes(k)).map(k => W[k](C)).join('')}
+  // Dépenses arrivées par Apple Pay sans catégorie connue
+  const todo = C.exps.filter(e => e.mine && !e.auto && e.cat === 'none').length;
+  const toClass = todo ? `<div class="banner"><span>${todo} dépense${todo > 1 ? 's' : ''} Apple Pay à classer</span><button class="btn sm primary" data-act="toClassify">Classer</button></div>` : '';
+  return `<div class="stack">${toClass}${onboarding}${S.widgets.filter(k => !S.hidden.includes(k)).map(k => W[k](C)).join('')}
     <button class="btn ghost full" data-act="editHome">Personnaliser l’accueil</button></div>`;
 }
 function viewList(C) {
@@ -566,6 +569,10 @@ function viewSettings() {
       <div class="field"><span>Ton prénom</span><input class="inp" id="p-myname" value="${esc(P.name)}" data-act="pname"></div>
       <div class="field"><span>Email de ta copine</span><input class="inp" id="p-partner" type="email" value="${esc(pe)}" data-act="pemail" placeholder="son.email@exemple.fr"></div>
       ${link}</section>
+    <section class="card"><div class="card-h"><span class="label">Paiements Apple Pay</span></div>
+      <p class="small muted" style="margin:0 0 12px">Ton raccourci iPhone utilise ce jeton pour ajouter tes paiements Apple Pay. Garde-le pour toi : il permet seulement d’ajouter des dépenses à ton budget.</p>
+      <div id="tokenBox" class="small num" style="word-break:break-all;background:var(--sunk);border-radius:10px;padding:10px;margin-bottom:10px" hidden></div>
+      <div class="row"><button class="btn sm ghost" data-act="showToken">Afficher et copier mon jeton</button><button class="btn sm ghost" data-act="regenToken">Changer de jeton</button></div></section>
     <section class="card"><div class="card-h"><span class="label">Compte</span></div>
       <p class="small muted" style="margin:0 0 12px">Connecté en tant que ${esc(P.email)}.</p>
       <div class="row"><button class="btn sm ghost" data-act="export">Exporter mes données</button><button class="btn sm danger" data-act="logout">Se déconnecter</button></div></section>
@@ -629,11 +636,18 @@ function showExpense(id) {
   const foot = e.auto ? '<p class="small muted">Ajoutée automatiquement depuis tes abonnements. Modifie-la dans Réglages.</p><button type="button" class="btn ghost full" data-act="close">Fermer</button>'
     : !e.mine ? `<p class="small muted">Ajoutée par ${esc(partnerName())} : seule elle peut la supprimer.</p><button type="button" class="btn ghost full" data-act="close">Fermer</button>`
     : `<div class="sheet-actions"><button type="button" class="btn ghost" data-act="close">Fermer</button><button type="button" class="btn danger" data-act="delExp" data-id="${e.id}">Supprimer</button></div>`;
+  // Mes dépenses : on peut changer la catégorie (et la passer en commune si je l'ai payée)
+  const editable = e.mine && !e.auto;
+  const catRow = editable
+    ? `<div class="field" style="margin:4px 0 14px"><span>Catégorie</span><div class="choices">${S.cats.map(k => `<label><input type="radio" name="recat" value="${k.id}" data-act="recat" data-id="${e.id}" ${k.id === e.cat ? 'checked' : ''}><span><i class="dot" style="background:${col(k)}"></i>${esc(k.name)}</span></label>`).join('')}</div>
+       ${e.label ? `<p class="small muted" style="margin:6px 0 0">Les prochains paiements chez « ${esc(e.label)} » seront rangés dans cette catégorie.</p>` : ''}</div>
+       ${S.partner && e.paidByMe ? `<label class="toggle"><span><b>Dépense commune</b><br><span class="small muted">Divisée par deux avec ${esc(partnerName())}</span></span><input type="checkbox" class="sw" id="e-shared" data-act="reshare" data-id="${e.id}" ${e.shared ? 'checked' : ''}></label>` : ''}`
+    : `<div class="set-row"><span class="nm muted">Catégorie</span><b>${esc(c.name)}</b></div>`;
   openSheet(esc(e.label || c.name), `<div class="list" style="margin-bottom:14px">
       <div class="set-row"><span class="nm muted">Montant</span><b class="num">${eur(e.amount)}</b></div>
       ${e.shared ? `<div class="set-row"><span class="nm muted">Ta part</span><b class="num">${eur(share(e))}</b></div><div class="set-row"><span class="nm muted">Payé par</span><b>${e.paidByMe ? 'Toi' : esc(partnerName())}</b></div>` : ''}
-      <div class="set-row"><span class="nm muted">Catégorie</span><b>${esc(c.name)}</b></div>
-      <div class="set-row"><span class="nm muted">Date</span><b>${dayLabel(e.date)}</b></div></div>${foot}`, null);
+      ${editable ? '' : catRow}
+      <div class="set-row"><span class="nm muted">Date</span><b>${dayLabel(e.date)}</b></div></div>${editable ? catRow : ''}${foot}`, null);
 }
 function addIncome() {
   openSheet('Nouveau revenu', `<div class="field"><input class="inp amount-inp num" id="i-amount" name="amount" inputmode="decimal" placeholder="0,00 €" required aria-label="Montant"></div>
@@ -720,6 +734,20 @@ document.addEventListener('click', e => {
     case 'editHome': UI.editHome = !UI.editHome; render(); break;
     case 'wmove': { const i = +el.dataset.i, j = i + +el.dataset.d; [S.widgets[i], S.widgets[j]] = [S.widgets[j], S.widgets[i]]; render(); saveSettings(); break; }
     case 'wtoggle': { const k = el.dataset.k; S.hidden = S.hidden.includes(k) ? S.hidden.filter(x => x !== k) : [...S.hidden, k]; render(); saveSettings(); break; }
+    case 'toClassify': UI.tab = 'list'; UI.listMode = 'exp'; UI.filter = 'all'; UI.catFilter = 'none'; render(); window.scrollTo(0, 0); break;
+    case 'showToken': sb.rpc('my_quick_token').then(({ data, error }) => {
+      if (error || !data) { toast('Jeton indisponible : as-tu exécuté le script Apple Pay dans Supabase ?'); return; }
+      const box = $('tokenBox'); box.hidden = false; box.textContent = data;
+      navigator.clipboard?.writeText(data).then(() => toast('Jeton copié'), () => toast('Sélectionne le jeton pour le copier'));
+    }); break;
+    case 'regenToken':
+      if (!el.dataset.sure) { el.dataset.sure = 1; el.textContent = 'Confirmer (l’ancien raccourci ne marchera plus)'; break; }
+      sb.rpc('regen_quick_token').then(({ data, error }) => {
+        if (error || !data) { toast('Erreur : ' + (error?.message || 'jeton non généré')); return; }
+        const box = $('tokenBox'); box.hidden = false; box.textContent = data;
+        el.textContent = 'Changer de jeton'; delete el.dataset.sure;
+        navigator.clipboard?.writeText(data).then(() => toast('Nouveau jeton copié : mets-le à jour dans ton raccourci'), () => toast('Nouveau jeton créé : mets-le à jour dans ton raccourci'));
+      }); break;
     case 'export': {
       const blob = new Blob([JSON.stringify({ exporte_le: new Date().toISOString(), ...S }, null, 2)], { type: 'application/json' });
       const url = URL.createObjectURL(blob), link = document.createElement('a');
@@ -730,6 +758,17 @@ document.addEventListener('click', e => {
 });
 document.addEventListener('change', e => {
   const el = e.target, a = el.dataset.act;
+  if (a === 'recat') {
+    // Range cette dépense, et les autres dépenses non classées chez le même commerçant
+    const e = S.exps.find(x => x.id === el.dataset.id), c = cat(el.value);
+    const upd = { category_id: c.id, category_name: c.name };
+    closeSheet();
+    (async () => {
+      if (e && e.label) await sb.from('expenses').update(upd).eq('user_id', ME.id).is('category_id', null).eq('label', e.label);
+      await db(sb.from('expenses').update(upd).eq('id', el.dataset.id), 'Rangée dans ' + c.name);
+    })();
+  }
+  if (a === 'reshare') db(sb.from('expenses').update({ shared: el.checked }).eq('id', el.dataset.id), el.checked ? 'Passée en dépense commune' : 'Repassée en dépense perso');
   if (a === 'budget') db(sb.from('categories').update({ budget: num(el.value) || 0 }).eq('id', el.dataset.id));
   if (a === 'fixed') db(sb.from('categories').update({ fixed: el.checked }).eq('id', el.dataset.id));
   if (a === 'pname') db(sb.from('profiles').update({ name: el.value.trim() }).eq('id', ME.id), 'Prénom enregistré');
