@@ -157,6 +157,16 @@ button{cursor:pointer}
 .cmp.up{color:var(--good)} .cmp.down{color:var(--bad)}
 .pot-plan{color:var(--accent)}
 .small-ic{width:30px;height:30px;border-radius:10px;display:grid;place-items:center;color:#fff;font-weight:800;flex:none}
+/* Barre de tri */
+.sortbar{display:flex;align-items:center;gap:6px;flex-wrap:wrap}
+.sortbar span{margin-right:2px}
+.sortbar button{border:1.5px solid var(--line);background:var(--surface);border-radius:99px;padding:6px 12px;font-weight:600;font-size:13px;color:var(--muted)}
+.sortbar button[aria-pressed="true"]{border-color:var(--accent);background:var(--accent-soft);color:var(--accent)}
+#view.a-soft .sortbar button[aria-pressed="true"]{animation:pop .32s cubic-bezier(.2,.9,.25,1) both}
+.cl-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-top:16px}
+.cl-actions .btn{display:flex;flex-direction:column;align-items:center;gap:2px;padding:10px}
+.cl-actions .btn span{font-size:12px;font-weight:500;color:var(--muted)}
+.cl-actions .btn:disabled{opacity:.45}
 /* Écran « à classer » */
 .cl-hero{text-align:center;padding:10px 0 18px;display:flex;flex-direction:column;align-items:center;gap:4px}
 .cl-name{font-family:var(--f-display);font-size:30px;font-weight:700;line-height:1.1;letter-spacing:-.01em;word-break:break-word;text-wrap:balance}
@@ -366,7 +376,7 @@ const todayStr = () => { const d = new Date(); return d.getFullYear() + '-' + pa
 // ---------- État ----------
 let sb = null, ME = null;   // client Supabase, utilisateur connecté
 let S = null;               // toutes les données chargées
-const UI = { tab: 'home', ym: todayStr().slice(0, 7), filter: 'all', catFilter: 'all', listMode: 'exp', editHome: false, q: '', offline: false, donutSel: null };
+const UI = { sort: 'date-desc', sortSearch: 'rel', tab: 'home', ym: todayStr().slice(0, 7), filter: 'all', catFilter: 'all', listMode: 'exp', editHome: false, q: '', offline: false, donutSel: null };
 
 // ---------- Outils ----------
 const esc = s => String(s ?? '').replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -595,7 +605,7 @@ async function load() {
     exps: N(ex).map(e => ({ ...e, cat: resolve(e), mine: e.user_id === uid, paidByMe: e.paid_by === uid })),
     incs: N(inc), subs: N(su), pots: po.map(p => ({ ...p, target: +p.target })), contribs: N(co), setts: N(se),
     widgets: (st.widgets || Object.keys(WIDGETS)).filter(k => WIDGETS[k]).concat(Object.keys(WIDGETS).filter(k => !(st.widgets || Object.keys(WIDGETS)).includes(k))),
-    hidden: st.hidden || [], bilanSeen: st.bilanSeen || null
+    hidden: st.hidden || [], bilanSeen: st.bilanSeen || null, clIgnored: st.clIgnored || []
   };
   // Premier lancement : création des catégories par défaut
   if (!cats.length) {
@@ -772,29 +782,48 @@ function viewHome(C) {
   return `<div class="stack">${bil}${toClass}${onboarding}${S.widgets.filter(k => !S.hidden.includes(k)).map(k => W[k](C)).join('')}
     <button class="btn ghost full" data-act="editHome">Personnaliser l’accueil</button></div>`;
 }
+// Tri : date ou montant, croissant ou décroissant (+ pertinence pour la recherche)
+function sortBar(cur, withRel) {
+  const [k, dir] = cur.split('-'), arrow = d => d === 'asc' ? '↑' : '↓';
+  const btn = (key, label) => `<button data-act="sort" data-k="${key}" data-s="${withRel ? 1 : 0}" aria-pressed="${k === key}">${label}${k === key && key !== 'rel' ? ' ' + arrow(dir) : ''}</button>`;
+  return `<div class="sortbar"><span class="small muted">Trier par</span>${withRel ? btn('rel', 'Pertinence') : ''}${btn('date', 'Date')}${btn('amt', 'Montant')}</div>`;
+}
+function sortItems(arr, mode, amt = x => x.amount) {
+  const [k, dir] = mode.split('-'), sgn = dir === 'asc' ? 1 : -1;
+  if (k === 'rel') return arr;
+  return arr.slice().sort((a, b) => k === 'amt' ? sgn * (amt(a) - amt(b)) || b.date.localeCompare(a.date)
+    : sgn * a.date.localeCompare(b.date) || sgn * (a.created_at || '').localeCompare(b.created_at || ''));
+}
+// Liste : en-têtes par jour si tri par date, sinon liste simple avec la date sur chaque ligne
+function listHtml(arr, mode, row) {
+  if (!mode.startsWith('date')) return arr.map(x => row(x, true)).join('');
+  let html = '', last = '';
+  arr.forEach(x => { if (x.date !== last) { html += `<div class="day-h">${dayLabel(x.date)}</div>`; last = x.date; } html += row(x, false); });
+  return html;
+}
+const incRow = (i, withDate) => `<button class="item" data-act="inc" data-id="${i.id}"><span class="ic" style="background:var(--good)">+</span><span class="tx"><b>${esc(i.label)}${i.pending ? '<span class="chip wait">En attente</span>' : ''}</b><span>${withDate ? dayLabel(i.date) : 'Revenu'}</span></span><span class="am" style="color:var(--good)">+${eur(i.amount)}</span></button>`;
 function viewList(C) {
   const seg = `<div class="seg"><button data-act="mode" data-v="exp" aria-pressed="${UI.listMode === 'exp'}">Dépenses</button><button data-act="mode" data-v="inc" aria-pressed="${UI.listMode === 'inc'}">Revenus</button></div>`;
   if (UI.listMode === 'inc') {
-    const inc = S.incs.filter(i => i.date.startsWith(UI.ym)).sort((a, b) => b.date.localeCompare(a.date));
-    return `<div class="stack">${seg}<section class="card"><div class="card-h"><span class="label">Revenus du mois</span><b class="num">${eur(C.income)}</b></div>
-      <div class="list">${inc.map(i => `<button class="item" data-act="inc" data-id="${i.id}"><span class="ic" style="background:var(--good)">+</span><span class="tx"><b>${esc(i.label)}${i.pending ? '<span class="chip wait">En attente</span>' : ''}</b><span>${dayLabel(i.date)}</span></span><span class="am" style="color:var(--good)">+${eur(i.amount)}</span></button>`).join('') || '<div class="empty small">Aucun revenu saisi ce mois-ci. Touche + puis « Revenu » pour en ajouter un.</div>'}</div></section></div>`;
+    const inc = sortItems(S.incs.filter(i => i.date.startsWith(UI.ym)), UI.sort);
+    return `<div class="stack">${seg}${inc.length > 1 ? sortBar(UI.sort) : ''}<section class="card"><div class="card-h"><span class="label">Revenus du mois</span><b class="num">${eur(C.income)}</b></div>
+      <div class="list">${listHtml(inc, UI.sort, incRow) || '<div class="empty small">Aucun revenu saisi ce mois-ci. Touche + puis « Revenu » pour en ajouter un.</div>'}</div></section></div>`;
   }
-  if (UI.q.trim()) return `<div class="stack">${searchResults()}</div>`;
+  if (UI.q.trim()) return `<div class="stack">${searchResults()}</div>`;   // (la barre de tri est incluse dans les résultats)
   const f = UI.filter, cf = UI.catFilter;
   // Filtre perso/communes puis filtre par catégorie
-  const list = C.exps.filter(e => (f === 'all' || (f === 'shared' ? e.shared : !e.shared)) && (cf === 'all' || e.cat === cf));
+  const list = sortItems(C.exps.filter(e => (f === 'all' || (f === 'shared' ? e.shared : !e.shared)) && (cf === 'all' || e.cat === cf)), UI.sort, e => f === 'shared' ? e.amount : share(e));
   const usedCats = (C.by.none ? [...S.cats, NONE] : S.cats);
   const chips = `<div class="cat-chips" role="group" aria-label="Filtrer par catégorie"><button data-act="catf" data-v="all" aria-pressed="${cf === 'all'}">Toutes</button>${
     usedCats.map(c => `<button data-act="catf" data-v="${c.id}" aria-pressed="${cf === c.id}"><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}</button>`).join('')}</div>`;
   const catSel = cf !== 'all' ? cat(cf) : null;
   const cb = catSel ? C.bud[catSel.id] || 0 : 0;
   const catInfo = cb ? `<p class="small muted num" style="margin:-4px 0 8px">${eur(C.by[cf] || 0)} sur ${eur(cb)} ce mois-ci · reste ${eur(cb - (C.by[cf] || 0))}</p>` : '';
-  let html = '', last = '';
-  list.forEach(e => { if (e.date !== last) { html += `<div class="day-h">${dayLabel(e.date)}</div>`; last = e.date; } html += itemHtml(e); });
+  const html = listHtml(list, UI.sort, itemHtml);
   const tot = list.reduce((s, e) => s + (f === 'shared' ? e.amount : share(e)), 0);
   return `<div class="stack">${seg}
     <div class="seg"><button data-act="filter" data-v="all" aria-pressed="${f === 'all'}">Tout</button><button data-act="filter" data-v="perso" aria-pressed="${f === 'perso'}">Perso</button><button data-act="filter" data-v="shared" aria-pressed="${f === 'shared'}">Communes</button></div>
-    ${chips}
+    ${chips}${sortBar(UI.sort)}
     <section class="card"><div class="card-h"><span class="label">${catSel ? esc(catSel.name) + ' · ' : ''}${f === 'shared' ? 'Total dépensé à deux' : 'Ta part'}</span><b class="num">${eur(tot)}</b></div>${catInfo}
     <div class="list">${html || '<div class="empty small">Aucune dépense ne correspond à ce filtre ce mois-ci.</div>'}</div></section></div>`;
 }
@@ -808,8 +837,8 @@ function searchResults() {
   const infoHtml = info.length ? `<p class="small muted" style="margin:-4px 0 8px">${esc(info.join(' · '))}</p>` : '';
   if (!res.length) return `<section class="card"><div class="empty small">Aucune dépense ne correspond à « ${esc(q)} ».</div>${infoHtml}</section>`;
   const tot = res.reduce((s, e) => s + share(e), 0);
-  const html = res.slice(0, 150).map(e => itemHtml(e, true)).join('');
-  return `<section class="card"><div class="card-h"><span class="label">${res.length} résultat${res.length > 1 ? 's' : ''} · ta part</span><b class="num">${eur(tot)}</b></div>${infoHtml}<div class="list">${html}</div>${res.length > 150 ? '<p class="small muted">150 premiers résultats affichés.</p>' : ''}</section>`;
+  const html = sortItems(res, UI.sortSearch, share).slice(0, 150).map(e => itemHtml(e, true)).join('');
+  return `${sortBar(UI.sortSearch, true)}<section class="card"><div class="card-h"><span class="label">${res.length} résultat${res.length > 1 ? 's' : ''} · ta part</span><b class="num">${eur(tot)}</b></div>${infoHtml}<div class="list">${html}</div>${res.length > 150 ? '<p class="small muted">150 premiers résultats affichés.</p>' : ''}</section>`;
 }
 // Courbe des dépenses cumulées sur le mois, comparée au rythme du budget
 function cumChart(C) {
@@ -1085,7 +1114,7 @@ function showExpense(id, ym) {
   const sh = $('e-shared'); if (sh) sh.addEventListener('change', () => $('e-paidBox').classList.toggle('closed', !sh.checked));
 }
 // Dépenses à classer (arrivées par Apple Pay sans catégorie connue), tous mois confondus
-const toClassifyList = () => S.exps.filter(e => e.mine && !e.pending && e.cat === 'none').sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || ''));
+const toClassifyList = () => S.exps.filter(e => e.mine && !e.pending && e.cat === 'none' && !(S.clIgnored || []).includes(e.id)).sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || ''));
 function classify(startId) {
   const list = toClassifyList();
   if (!list.length) { closeSheet(); render(); refresh(); toast('Tout est classé'); return; }
@@ -1098,7 +1127,12 @@ function classify(startId) {
     </div>
     <div class="cl-grid">${S.cats.map(c => `<button type="button" class="cl-tile" data-act="clPick" data-id="${e.id}" data-v="${c.id}" style="--tc:${col(c)}"><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}</button>`).join('')}</div>
     ${e.label ? `<p class="small muted" style="text-align:center;margin:12px 0 0">Les prochains paiements chez « ${esc(e.label)} » seront rangés automatiquement.</p>` : ''}
-    <div class="sheet-actions" style="margin-top:14px"><button type="button" class="btn ghost" data-act="close">Fermer</button><button type="button" class="btn ghost" data-act="clSkip" data-id="${list[(i + 1) % list.length].id}" ${list.length < 2 ? 'disabled' : ''}>Passer</button></div>`, null);
+    <div class="cl-actions">
+      <button type="button" class="btn ghost" data-act="clSkip" data-id="${list[(i + 1) % list.length].id}" ${list.length < 2 ? 'disabled' : ''}><b>Passer</b><span>la classer plus tard</span></button>
+      <button type="button" class="btn ghost" data-act="clIgnore" data-id="${e.id}"><b>Ignorer</b><span>ne plus la proposer</span></button>
+    </div>
+    <button type="button" class="btn del-btn" data-act="clDel" data-id="${e.id}" data-what="(doublon)">${TRASH}<span>Supprimer (doublon)</span></button>
+    <button type="button" class="btn ghost full" style="margin-top:10px" data-act="close">Fermer</button>`, null);
 }
 async function clPick(id, catId) {
   if (!navigator.onLine) { toast('Pas de réseau : réessaie une fois connecté'); return; }
@@ -1243,7 +1277,7 @@ function confirmSheet(title, text, btn, fn) {
   $('sheetOk').className = 'btn danger';
 }
 async function saveSettings(silent) {
-  const q = sb.from('profiles').update({ settings: { widgets: S.widgets, hidden: S.hidden, bilanSeen: S.bilanSeen } }).eq('id', ME.id);
+  const q = sb.from('profiles').update({ settings: { widgets: S.widgets, hidden: S.hidden, bilanSeen: S.bilanSeen, clIgnored: (S.clIgnored || []).filter(id => S.exps.some(e => e.id === id)) } }).eq('id', ME.id);
   if (silent) { if (navigator.onLine) await q; return; }
   await db(q);
 }
@@ -1258,7 +1292,7 @@ document.addEventListener('click', e => {
     case 'next': UI.ym = shiftMonth(UI.ym, 1); render('left'); break;
     case 'add': addExpense(); break;
     case 'close': closeSheet(); render(); break;
-    case 'exp': { const x = S.exps.find(y => y.id === id); if (x && x.mine && !x.pending && x.cat === 'none') classify(id); else showExpense(id, el.dataset.ym); break; }
+    case 'exp': { const x = S.exps.find(y => y.id === id); if (x && x.mine && !x.pending && x.cat === 'none' && !(S.clIgnored || []).includes(id)) classify(id); else showExpense(id, el.dataset.ym); break; }
     case 'delExp':
       if (el.dataset.sure) { closeSheet(); db(sb.from('expenses').delete().eq('id', id), 'Dépense supprimée', () => { S.exps = S.exps.filter(x => x.id !== id); }); }
       else armDelete(el); break;
@@ -1277,6 +1311,13 @@ document.addEventListener('click', e => {
       else { el.dataset.sure = 1; el.textContent = '✓'; el.setAttribute('aria-label', 'Confirmer l’annulation'); toast('Touche à nouveau pour annuler ce remboursement'); } break;
     case 'qclear': UI.q = ''; $('q').value = ''; $('qclear').hidden = true; render('soft'); break;
     case 'filter': UI.filter = el.dataset.v; render('soft'); break;
+    case 'sort': {
+      // Toucher le tri actif inverse le sens ; toucher un autre tri le sélectionne (décroissant d'abord)
+      const key = el.dataset.k, isS = el.dataset.s === '1', cur = isS ? UI.sortSearch : UI.sort;
+      const next = key === 'rel' ? 'rel' : cur.startsWith(key + '-') ? key + '-' + (cur.endsWith('desc') ? 'asc' : 'desc') : key + '-desc';
+      if (isS) UI.sortSearch = next; else UI.sort = next;
+      render('soft'); break;
+    }
     case 'catf': UI.catFilter = el.dataset.v; render('soft'); break;
     case 'catgo': UI.tab = 'list'; UI.listMode = 'exp'; UI.filter = 'all'; UI.catFilter = id; window.scrollTo(0, 0); render('fade'); break;
     case 'mode': UI.listMode = el.dataset.v; render('soft'); break;
@@ -1305,6 +1346,17 @@ document.addEventListener('click', e => {
     case 'toClassify': classify(); break;
     case 'clPick': clPick(id, el.dataset.v); break;
     case 'clSkip': classify(id); break;
+    case 'clIgnore': {
+      // Reste « Sans catégorie », mais n'est plus proposée au classement
+      const next = toClassifyList().filter(x => x.id !== id)[0];
+      S.clIgnored = [...(S.clIgnored || []), id]; saveSettings(true);
+      toast('Ignorée : elle reste dans « Sans catégorie »'); classify(next && next.id); break;
+    }
+    case 'clDel':
+      if (el.dataset.sure) {
+        const next = toClassifyList().filter(x => x.id !== id)[0];
+        db(sb.from('expenses').delete().eq('id', id), 'Dépense supprimée', () => { S.exps = S.exps.filter(x => x.id !== id); }).then(ok => { if (ok) classify(next && next.id); });
+      } else armDelete(el); break;
     case 'showToken': sb.rpc('my_quick_token').then(({ data, error }) => {
       if (error || !data) { toast('Jeton indisponible : as-tu exécuté le script Apple Pay dans Supabase ?'); return; }
       const box = $('tokenBox'); box.hidden = false; box.textContent = data;
@@ -1405,6 +1457,7 @@ document.addEventListener('click', e => { if (suppressClick) { e.stopPropagation
 })();
 document.addEventListener('input', e => {
   if (e.target.id !== 'q') return;
+  if (!UI.q.trim()) UI.sortSearch = 'rel';
   UI.q = e.target.value; $('qclear').hidden = !UI.q;
   clearTimeout(window._qT); window._qT = setTimeout(() => render(), 120);   // petite pause pour ne pas recalculer à chaque lettre
 });
