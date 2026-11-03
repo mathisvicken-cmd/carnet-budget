@@ -748,7 +748,7 @@ const W = {
       <p class="small muted" style="margin:12px 0 0">Dont <b class="num">${eur(C.contrib)}</b> versés dans les cagnottes, <b class="num">${eur(C.free)}</b> d’épargne libre.${C.potSpent ? ` <b class="num">${eur(C.potSpent)}</b> payés avec les cagnottes, hors budget.` : ''}</p></section>`;
   },
   commun(C) {
-    if (!S.partner) return `<section class="card"><div class="card-h"><span class="label">Dépenses communes</span></div><p class="small muted" style="margin:0 0 12px">Lie ton compte à celui de ta copine pour partager vos dépenses communes.</p><button class="btn sm primary" data-act="tab" data-tab="settings">Lier les comptes</button></section>`;
+    if (!S.partner) return `<section class="card"><div class="card-h"><span class="label">Dépenses communes</span></div><p class="small muted" style="margin:0 0 12px">Lie ton compte à celui de ton/ta partenaire pour partager vos dépenses communes.</p><button class="btn sm primary" data-act="tab" data-tab="settings">Lier les comptes</button></section>`;
     const b = balance();
     const txt = Math.abs(b) < 0.01 ? 'Vous êtes quittes' : b > 0 ? `${esc(partnerName())} te doit <b class="num">${eur(b)}</b>` : `Tu dois <b class="num">${eur(-b)}</b> à ${esc(partnerName())}`;
     return `<section class="card"><div class="card-h"><span class="label">Dépenses communes</span><button class="link" data-act="shared">Voir</button></div>
@@ -988,7 +988,7 @@ function viewSettings() {
   const P = S.profile, pe = (P.partner_email || '').trim();
   const link = S.partner ? `<p class="small" style="margin:0 0 12px">Comptes liés avec <b>${esc(partnerName())}</b>.</p>`
     : pe ? `<p class="small muted" style="margin:0 0 12px">En attente : ${esc(pe)} doit aussi entrer ton email (${esc(P.email)}) dans ses réglages.</p>`
-    : `<p class="small muted" style="margin:0 0 12px">Entre l’email de ta copine. Le lien est actif quand elle a aussi entré le tien.</p>`;
+    : `<p class="small muted" style="margin:0 0 12px">Entre l’email de ton/ta partenaire. Le lien est actif quand il ou elle a aussi entré le tien.</p>`;
   return `<div class="stack">
     <section class="card"><div class="card-h"><span class="label">Budgets · ${monthLabel(UI.ym)}</span><b class="num">${eur(S.cats.reduce((s, c) => s + budgetFor(c, UI.ym), 0))}</b></div>
       ${S.cats.map(c => `<div class="set-row"><i class="dot" style="background:${col(c)}"></i><span class="nm">${esc(c.name)}${c.fixed ? ' <span class="fixed-tag">fixe</span>' : ''}</span>
@@ -1001,7 +1001,7 @@ function viewSettings() {
       <button class="btn ghost full" style="margin-top:10px" data-act="addSub">Ajouter un abonnement</button></section>
     <section class="card"><div class="card-h"><span class="label">Profil et partage</span></div>
       <div class="field"><span>Ton prénom</span><input class="inp" id="p-myname" value="${esc(P.name)}" data-act="pname"></div>
-      <div class="field"><span>Email de ta copine</span><input class="inp" id="p-partner" type="email" value="${esc(pe)}" data-act="pemail" placeholder="son.email@exemple.fr"></div>
+      <div class="field"><span>Email de ton/ta partenaire</span><input class="inp" id="p-partner" type="email" value="${esc(pe)}" data-act="pemail" placeholder="son.email@exemple.fr"></div>
       ${link}</section>
     <section class="card"><div class="card-h"><span class="label">Paiements Apple Pay</span></div>
       <p class="small muted" style="margin:0 0 12px">Ton raccourci iPhone utilise ce jeton pour ajouter tes paiements Apple Pay. Garde-le pour toi : il permet seulement d’ajouter des dépenses à ton budget.</p>
