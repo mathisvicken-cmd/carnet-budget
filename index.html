@@ -395,7 +395,7 @@ const shiftMonth = (ym, k) => { const [y, m] = ym.split('-').map(Number); const 
 const monthLabel = ym => { const [y, m] = ym.split('-').map(Number); return new Date(y, m - 1, 1).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' }); };
 const dayLabel = ds => { const [y, m, d] = ds.split('-').map(Number); return new Date(y, m - 1, d).toLocaleDateString('fr-FR', { weekday: 'long', day: 'numeric', month: 'long' }); };
 const num = v => parseFloat(String(v ?? '').replace(/\s/g, '').replace(',', '.'));
-const share = e => e.shared && !e.pot_id ? e.amount / 2 : e.amount;  // ma part : moitié si commune (une dépense payée par une cagnotte n'est jamais divisée)
+const share = e => e.shared ? e.amount / 2 : e.amount;              // ma part : moitié si commune (ou « pour nous deux » dans une cagnotte)
 const inBudget = e => !e.pot_id;                                     // payée avec une cagnotte : hors budget du mois
 const level = p => p >= 0.8 ? 'red' : p >= 0.5 ? 'amber' : 'ok';
 const lvlColor = p => p >= 0.8 ? 'var(--bad)' : p >= 0.5 ? 'var(--warn)' : 'var(--accent)';
@@ -406,6 +406,15 @@ const partnerName = () => S.partner ? (S.partner.name || 'ton/ta partenaire') : 
 const potTotal = p => S.contribs.filter(c => c.pot_id === p.id).reduce((s, c) => s + c.amount, 0);   // versé
 const potSpent = p => S.exps.filter(e => e.pot_id === p.id).reduce((s, e) => s + e.amount, 0);        // dépensé avec la cagnotte (vous deux)
 const potLeft = p => potTotal(p) - potSpent(p);                                                         // ce qu'il reste dedans
+// Part de chacun dans une cagnotte à deux : ce qu'il a versé moins ce qu'il a dépensé
+// (une dépense « pour nous deux » est retirée moitié-moitié des deux parts)
+function potPart(p, mine) {
+  const isMe = uid => mine ? uid === ME.id : uid !== ME.id;
+  const verse = S.contribs.filter(c => c.pot_id === p.id && isMe(c.user_id)).reduce((s, c) => s + c.amount, 0);
+  const depense = S.exps.filter(e => e.pot_id === p.id).reduce((s, e) => s + (e.shared ? e.amount / 2 : isMe(e.user_id) ? e.amount : 0), 0);
+  return { verse, depense, reste: verse - depense };
+}
+const potMyLeft = p => p.shared && S.partner ? potPart(p, true).reste : potLeft(p);
 const usablePots = () => S.pots.filter(p => p.user_id === ME.id || p.shared);
 const potById = id => id ? S.pots.find(p => p.id === id) || null : null;
 const activePot = () => potById(S.activePot);                                                           // mode séjour
@@ -650,7 +659,7 @@ function calc(ym) {
   let spent = 0, h1 = 0, h2 = 0, sharedTotal = 0, potSpentM = 0;
   exps.forEach(e => {
     const m = share(e), d = +e.date.slice(8);
-    if (!inBudget(e)) { if (e.mine) potSpentM += e.amount; return; }   // payée avec une cagnotte : hors budget
+    if (!inBudget(e)) { if (e.shared || e.mine) potSpentM += m; return; }   // payée avec une cagnotte : hors budget (ma part)
     by[e.cat] = (by[e.cat] || 0) + m; spent += m;
     weeks[Math.floor((d - 1) / 7)] += m;
     d <= 15 ? h1 += m : h2 += m;
@@ -771,12 +780,12 @@ const W = {
 function itemHtml(e, withDate) {
   const c = cat(e.cat);
   const pot = potById(e.pot_id), sh = e.shared && !pot;
-  const who = pot ? 'hors budget' : sh ? (e.paidByMe ? 'payé par toi' : 'payé par ' + esc(partnerName())) : '';
+  const who = e.pot_id ? (e.shared ? 'pour vous deux · hors budget' : 'hors budget') : sh ? (e.paidByMe ? 'payé par toi' : 'payé par ' + esc(partnerName())) : '';
   const by = !e.mine ? ' · ajoutée par ' + esc(partnerName()) : '';
   const when = withDate ? new Date(e.date + 'T12:00:00').toLocaleDateString('fr-FR', { day: 'numeric', month: 'short', year: e.date.slice(0, 4) === todayStr().slice(0, 4) ? undefined : 'numeric' }) + ' · ' : '';
   return `<button class="item" data-act="exp" data-id="${e.id}" data-ym="${e.date.slice(0, 7)}"><span class="ic" style="background:${col(c)}">${esc(c.name.slice(0, 2))}</span>
     <span class="tx"><b>${esc(e.label || c.name)}${sh ? '<span class="chip">Commun</span>' : ''}${pot ? `<span class="chip pot-chip">${esc(pot.name)}</span>` : e.pot_id ? '<span class="chip pot-chip">Cagnotte</span>' : ''}${e.auto ? '<span class="chip auto">Auto</span>' : ''}${e.pending ? '<span class="chip wait">En attente</span>' : ''}</b><span>${when}${esc(c.name)}${who ? ' · ' + who : ''}${by}</span></span>
-    <span class="am${e.pot_id ? ' am-pot' : ''}">−${eur(share(e))}${sh ? `<small>sur ${eur(e.amount)}</small>` : ''}</span></button>`;
+    <span class="am${e.pot_id ? ' am-pot' : ''}">−${eur(share(e))}${e.shared ? `<small>sur ${eur(e.amount)}</small>` : ''}</span></button>`;
 }
 
 // ---------- Vues ----------
@@ -797,8 +806,8 @@ function viewHome(C) {
   const hasPrev = S.exps.some(e => e.date.startsWith(prev)) || S.incs.some(i => i.date.startsWith(prev));
   const bil = hasPrev && S.bilanSeen !== prev ? `<div class="banner bilan-b"><span>Ton bilan ${deMonth(prev)} est prêt</span><button class="btn sm primary" data-act="bilan" data-v="${prev}">Voir</button></div>` : '';
   // Mode séjour : les nouvelles dépenses sont payées avec cette cagnotte
-  const ap = activePot(), lft = ap ? potLeft(ap) : 0;
-  const stay = ap ? `<div class="banner stay-b"><span><b>Mode séjour · ${esc(ap.name)}</b><br><span class="small">Tes dépenses sont prises dans la cagnotte · reste <b class="num" style="color:${lft < 0 ? 'var(--bad)' : 'inherit'}">${eur(lft)}</b></span></span><button class="btn sm ghost" data-act="stayOff">Arrêter</button></div>` : '';
+  const ap = activePot(), lft = ap ? potMyLeft(ap) : 0, two = ap && ap.shared && S.partner;
+  const stay = ap ? `<div class="banner stay-b"><span><b>Mode séjour · ${esc(ap.name)}</b><br><span class="small">Tes dépenses sont prises dans la cagnotte · ${two ? 'ta part' : 'reste'} : <b class="num" style="color:${lft < 0 ? 'var(--bad)' : 'inherit'}">${eur(lft)}</b></span></span><button class="btn sm ghost" data-act="stayOff">Arrêter</button></div>` : '';
   return `<div class="stack">${stay}${bil}${toClass}${onboarding}${S.widgets.filter(k => !S.hidden.includes(k)).map(k => W[k](C)).join('')}
     <button class="btn ghost full" data-act="editHome">Personnaliser l’accueil</button></div>`;
 }
@@ -893,6 +902,15 @@ function cumChart(C) {
   return s + (txt ? `<p class="small" style="margin:8px 0 0">${txt}</p>` : '') + '<p class="small muted" style="margin:4px 0 0">Pointillés : rythme régulier du budget. Les dépenses fixes (loyer…) font monter la courbe d’un coup.</p>';
 }
 // Plan d'épargne d'une cagnotte avec date objectif
+// Tableau des parts : versé, dépensé, reste pour chacun, et qui a utilisé l'argent de l'autre
+function potParts(p) {
+  const me = potPart(p, true), him = potPart(p, false), pn = esc(partnerName());
+  const row = (n, x) => `<tr><td><b>${n}</b></td><td>${eur(x.verse)}</td><td>${eur(x.depense)}</td><td><b style="color:${x.reste < 0 ? 'var(--bad)' : 'var(--good)'}">${eur(x.reste)}</b></td></tr>`;
+  const over = me.reste < 0 ? `Tu as dépensé ${eur(-me.reste)} de plus que ta part : c’est l’argent de ${pn}.` : him.reste < 0 ? `${pn} a dépensé ${eur(-him.reste)} de plus que sa part : c’est ton argent.` : '';
+  return `<div class="tbl-wrap"><table class="parts"><thead><tr><th></th><th>Versé</th><th>Dépensé</th><th>Reste</th></tr></thead><tbody>
+    ${row('Toi', me)}${row(pn, him)}<tr><td>Total</td><td>${eur(me.verse + him.verse)}</td><td>${eur(me.depense + him.depense)}</td><td><b>${eur(me.reste + him.reste)}</b></td></tr></tbody></table></div>
+    ${over ? `<span class="small" style="color:var(--bad)">${over}</span>` : ''}`;
+}
 // Barre d'une cagnotte entamée : part dépensée sur ce qui a été versé
 function potBar(p) {
   const t = potTotal(p), sp = potSpent(p), r = t ? Math.min(1, sp / t) : 1;
@@ -975,8 +993,10 @@ function viewPots(C) {
       <div class="bar"><i style="width:${Math.min(100, r * 100)}%;background:var(--good)"></i></div>
       <div class="pot-h"><span class="num"><b>${eur(t)}</b> <span class="muted">sur ${eur(p.target)}</span></span><span class="small muted num">${t >= p.target ? 'Objectif atteint' : 'Encore ' + eur(p.target - t)}</span></div>
       ${potPlan(p) && potPlan(p) !== 'Objectif atteint' ? `<span class="small num pot-plan">${potPlan(p)}</span>` : ''}
-      ${p.shared ? `<span class="small muted num">Dont toi : ${eur(mineOnly)} · ${esc(partnerName())} : ${eur(t - mineOnly)}</span>` : ''}
-      ${sp ? `<div class="pot-use"><div class="split"><div class="box"><span class="small muted">Versé</span><b class="num">${eur(t)}</b></div><div class="box"><span class="small muted">Dépensé</span><b class="num">${eur(sp)}</b></div><div class="box"><span class="small muted">Reste</span><b class="num" style="color:${t - sp < 0 ? 'var(--bad)' : 'var(--good)'}">${eur(t - sp)}</b></div></div>
+      ${p.shared && !(sp && S.partner) ? `<span class="small muted num">Dont toi : ${eur(mineOnly)} · ${esc(partnerName())} : ${eur(t - mineOnly)}</span>` : ''}
+      ${sp && p.shared && S.partner ? `<div class="pot-use">${potParts(p)}${potBar(p)}
+        <button class="link" data-act="potExps" data-id="${p.id}">Voir les ${nExp} dépense${nExp > 1 ? 's' : ''} payée${nExp > 1 ? 's' : ''} avec</button></div>`
+      : sp ? `<div class="pot-use"><div class="split"><div class="box"><span class="small muted">Versé</span><b class="num">${eur(t)}</b></div><div class="box"><span class="small muted">Dépensé</span><b class="num">${eur(sp)}</b></div><div class="box"><span class="small muted">Reste</span><b class="num" style="color:${t - sp < 0 ? 'var(--bad)' : 'var(--good)'}">${eur(t - sp)}</b></div></div>
         ${potBar(p)}${t - sp < 0 ? `<span class="small" style="color:var(--bad)">La cagnotte est dépassée de ${eur(sp - t)} : verse un complément ou passe une dépense sur ton budget.</span>` : ''}
         <button class="link" data-act="potExps" data-id="${p.id}">Voir les ${nExp} dépense${nExp > 1 ? 's' : ''} payée${nExp > 1 ? 's' : ''} avec</button></div>` : ''}
       <div class="row"><button class="btn sm primary" data-act="contrib" data-id="${p.id}">Verser</button>${act ? `<button class="btn sm ${on ? 'danger-soft' : 'ghost'}" data-act="${on ? 'stayOff' : 'stayOn'}" data-id="${p.id}">${on ? 'Arrêter le séjour' : 'Utiliser pour un séjour'}</button>` : ''}${p.user_id === ME.id ? `<button class="btn sm ghost" data-act="editPot" data-id="${p.id}">Modifier</button><button class="btn sm ghost" data-act="potDel" data-id="${p.id}">Supprimer</button>` : ''}</div></section>`; }).join('');
@@ -1059,17 +1079,19 @@ document.addEventListener('submit', async e => {
 const catChoices = sel => `<div class="choices">${S.cats.map((c, i) => `<label><input type="radio" name="cat" value="${c.id}" ${(sel ? sel === c.id : i === 0) ? 'checked' : ''}><span><i class="dot" style="background:${col(c)}"></i>${esc(c.name)}</span></label>`).join('')}</div>`;
 const defDate = () => todayStr();   // date par défaut : toujours le jour même
 // « Payé avec » : mon budget du mois ou une cagnotte (hors budget)
-function potChoices(sel) {
+function potChoices(sel, potSharedOn) {
   const pots = usablePots(); if (!pots.length) return '';
   return `<div class="field"><span>Payé avec</span><div class="choices"><label><input type="radio" name="pot" value="" ${sel ? '' : 'checked'}><span>Mon budget</span></label>${
-    pots.map(p => `<label><input type="radio" name="pot" value="${p.id}" ${sel === p.id ? 'checked' : ''}><span>Cagnotte ${esc(p.name)} <small class="muted num">${eur(potLeft(p))}</small></span></label>`).join('')}</div>
-    <p class="small muted pot-hint" style="margin:6px 0 0"${sel ? '' : ' hidden'}>Prise dans la cagnotte : ne compte pas dans ton budget du mois.</p></div>`;
+    pots.map(p => `<label><input type="radio" name="pot" value="${p.id}" ${sel === p.id ? 'checked' : ''}><span>Cagnotte ${esc(p.name)} <small class="muted num">${p.shared && S.partner ? 'ta part ' : ''}${eur(potMyLeft(p))}</small></span></label>`).join('')}</div>
+    <p class="small muted pot-hint" style="margin:6px 0 0"${sel ? '' : ' hidden'}>Prise dans la cagnotte : ne compte pas dans ton budget du mois.</p></div>
+    ${S.partner ? `<div class="collapse closed" id="potSharedBox"><div><label class="toggle"><span><b>Pour nous deux</b><br><span class="small muted">Retirée moitié de ta part, moitié de celle de ${esc(partnerName())}. Sinon, elle est retirée de ta part seulement.</span></span><input type="checkbox" class="sw" id="f-potShared" name="potShared" ${potSharedOn ? 'checked' : ''}></label></div></div>` : ''}`;
 }
 // Cagnotte choisie : la dépense n'est pas divisée en deux (l'argent de la cagnotte est déjà commun)
 function bindPotChoice(sharedBoxId) {
   const upd = () => { const v = (document.querySelector('input[name=pot]:checked') || {}).value;
     const box = $(sharedBoxId); if (box) box.classList.toggle('closed', !!v);
-    const h = document.querySelector('.pot-hint'); if (h) h.hidden = !v; };
+    const h = document.querySelector('.pot-hint'); if (h) h.hidden = !v;
+    const ps = $('potSharedBox'), pp = potById(v); if (ps) ps.classList.toggle('closed', !(pp && pp.shared)); };
   document.querySelectorAll('input[name=pot]').forEach(r => r.addEventListener('change', upd)); upd();
 }
 const needAmount = a => { if (!(a > 0)) { toast('Indique un montant supérieur à 0'); return false; } return true; };
@@ -1096,12 +1118,12 @@ function addExpense(kind = 'exp') {
       const amount = num(fd.get('amount')); if (!needAmount(amount)) return false;
       // Revenu : enregistré dans la table des revenus
       if (fd.get('kind') === 'inc') return insertOrQueue('incomes', { date: fd.get('date'), amount, label: fd.get('label').trim() || 'Revenu' }, 'Revenu ajouté');
-      const c = cat(fd.get('cat')), pot = potById(fd.get('pot')), shared = !pot && !!fd.get('shared'), date = fd.get('date');
+      const c = cat(fd.get('cat')), pot = potById(fd.get('pot')), shared = pot ? !!(pot.shared && S.partner && fd.get('potShared')) : !!fd.get('shared'), date = fd.get('date');
       const before = calc(date.slice(0, 7)).by[c.id] || 0;
       const ok = await insertOrQueue('expenses', { date, amount, category_id: c.id, category_name: c.name, label: fd.get('label').trim(), shared,
-        paid_by: shared && fd.get('paidBy') === 'partner' ? S.pid : ME.id, pot_id: pot ? pot.id : null });
+        paid_by: !pot && shared && fd.get('paidBy') === 'partner' ? S.pid : ME.id, pot_id: pot ? pot.id : null });
       if (!ok || UI.offline) return ok;
-      if (pot) { const l = potLeft(pot); toast(l < 0 ? `${pot.name} : cagnotte dépassée de ${eur(-l)}` : `Payé avec ${pot.name} · reste ${eur(l)}`); return ok; }
+      if (pot) { const l = potMyLeft(pot), two = pot.shared && S.partner; toast(l < 0 ? `${pot.name} : ${two ? 'ta part est dépassée' : 'cagnotte dépassée'} de ${eur(-l)}` : `Payé avec ${pot.name} · ${two ? 'ta part' : 'reste'} : ${eur(l)}`); return ok; }
       // Message si la dépense fait franchir 50 %, 80 % ou 100 %
       const C2 = calc(date.slice(0, 7)), after = C2.by[c.id] || 0, b = C2.bud[c.id] || 0;
       let msg = 'Dépense ajoutée';
@@ -1150,7 +1172,7 @@ function showExpense(id, ym) {
     <div class="field"><span>Catégorie</span>${catChoices(e.cat === 'none' ? '__none' : e.cat)}
       ${e.label ? `<p class="small muted" style="margin:6px 0 0">Les prochains paiements Apple Pay chez « ${esc(e.label)} » iront dans la catégorie choisie.</p>` : ''}</div>
     <div class="field"><span>Date</span><input class="inp" id="e-date" type="date" name="date" value="${e.date}" required></div>
-    ${potChoices(e.pot_id || '')}
+    ${potChoices(e.pot_id || '', !!(e.pot_id && e.shared))}
     <div class="collapse" id="e-sharedBox"><div>
     ${S.partner ? `<label class="toggle"><span><b>Dépense commune</b><br><span class="small muted">Divisée par deux avec ${esc(partnerName())}</span></span><input type="checkbox" class="sw" id="e-shared" name="shared" ${e.shared ? 'checked' : ''}></label>
     <div class="collapse${e.shared ? '' : ' closed'}" id="e-paidBox"><div><div class="field"><span>Qui a payé ?</span><div class="choices"><label><input type="radio" name="paidBy" value="me" ${e.paidByMe ? 'checked' : ''}><span>${esc(S.profile.name || 'Moi')}</span></label><label><input type="radio" name="paidBy" value="partner" ${e.paidByMe ? '' : 'checked'}><span>${esc(partnerName())}</span></label></div></div></div></div>` : ''}
@@ -1158,9 +1180,9 @@ function showExpense(id, ym) {
     async fd => {
       const amount = num(fd.get('amount')); if (!needAmount(amount)) return false;
       const pot = potById(fd.get('pot')), keepPot = !pot && e.pot_id && !potById(e.pot_id) && !usablePots().length;
-      const k = fd.get('cat') ? cat(fd.get('cat')) : null, shared = !pot && !!fd.get('shared');
+      const k = fd.get('cat') ? cat(fd.get('cat')) : null, shared = pot ? !!(pot.shared && S.partner && fd.get('potShared')) : !!fd.get('shared');
       const upd = { amount, label: fd.get('label').trim(), date: fd.get('date'), shared,
-        paid_by: shared && fd.get('paidBy') === 'partner' ? S.pid : ME.id, pot_id: pot ? pot.id : keepPot ? e.pot_id : null,
+        paid_by: !pot && shared && fd.get('paidBy') === 'partner' ? S.pid : ME.id, pot_id: pot ? pot.id : keepPot ? e.pot_id : null,
         ...(k ? { category_id: k.id, category_name: k.name } : {}) };
       // Range aussi les autres dépenses non classées du même commerçant
       if (k && e.cat === 'none' && upd.label) await sb.from('expenses').update({ category_id: k.id, category_name: k.name }).eq('user_id', ME.id).is('category_id', null).eq('label', upd.label);
@@ -1273,7 +1295,7 @@ function potExps(id) {
   const p = potById(id); if (!p) return;
   const list = S.exps.filter(e => e.pot_id === id).sort((a, b) => b.date.localeCompare(a.date) || (b.created_at || '').localeCompare(a.created_at || ''));
   openSheet('Payé avec « ' + esc(p.name) + ' »', `
-    <div class="split" style="margin-bottom:12px"><div class="box"><span class="small muted">Dépensé</span><b class="num">${eur(potSpent(p))}</b></div><div class="box"><span class="small muted">Reste</span><b class="num" style="color:${potLeft(p) < 0 ? 'var(--bad)' : 'var(--good)'}">${eur(potLeft(p))}</b></div></div>
+    ${p.shared && S.partner ? `<div style="margin-bottom:12px;display:grid;gap:6px">${potParts(p)}</div>` : `<div class="split" style="margin-bottom:12px"><div class="box"><span class="small muted">Dépensé</span><b class="num">${eur(potSpent(p))}</b></div><div class="box"><span class="small muted">Reste</span><b class="num" style="color:${potLeft(p) < 0 ? 'var(--bad)' : 'var(--good)'}">${eur(potLeft(p))}</b></div></div>`}
     <div class="list">${list.map(e => itemHtml(e, true)).join('') || '<div class="empty small">Aucune dépense.</div>'}</div>
     <button type="button" class="btn ghost full" style="margin-top:12px" data-act="close">Fermer</button>`, null);
 }
@@ -1400,7 +1422,7 @@ document.addEventListener('click', e => {
     case 'stayOn': { const p = potById(id); S.activePot = id; saveSettings(true); render('soft');
       toast(`Séjour ${p.name} : tes dépenses sont prises dans la cagnotte`); break; }
     case 'stayOff': { const p = activePot(); S.activePot = null; saveSettings(true); render('soft');
-      toast(p ? `Séjour ${p.name} terminé · reste ${eur(potLeft(p))}` : 'Mode séjour arrêté'); break; }
+      toast(p ? `Séjour ${p.name} terminé · ${p.shared && S.partner ? 'ta part' : 'reste'} : ${eur(potMyLeft(p))}` : 'Mode séjour arrêté'); break; }
     case 'potExps': potExps(id); break;
     case 'catDel': { const c = cat(id); confirmSheet('Supprimer « ' + esc(c.name) + ' » ?', 'Les dépenses déjà saisies dans cette catégorie apparaîtront comme « Sans catégorie ».', 'Supprimer', () => db(sb.from('categories').delete().eq('id', id), 'Catégorie supprimée')); break; }
     case 'subDel': db(sb.from('subscriptions').delete().eq('id', id), 'Abonnement supprimé'); break;
